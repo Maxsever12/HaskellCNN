@@ -12,7 +12,7 @@ data Conv = Conv
 data Channel = Channel
   { height :: Int
     , width :: Int
-    , pixels :: [[[Float]]]
+    , pixels :: [[Float]]
   }
     deriving (Show)
 
@@ -34,10 +34,66 @@ main = do
     let (convLayer, _) = mkConv filterSizeGlobal channelNumberGlobal numFiltersGlobal g
     putStrLn $ "Convolution shape (filters, channels, height, width): " ++ show (numFilters convLayer, channelNumber convLayer, filterSize convLayer, filterSize convLayer)
     print convLayer
+    let channel =
+          Channel
+            { height = 4
+            , width = 4
+            , pixels = [ [1, 2, 3, 4]
+                       , [5, 6, 7, 8]
+                       , [9, 10, 11, 12]
+                       , [13, 14, 15, 16]
+                       ]
+            }
+    putStrLn "Input Channel:"
+    print channel
+    let regions = generateRegions 7 channel
+    putStrLn "Generated Regions:"
+    print regions
+    
 
 
-generateRegions :: Int -> Channel -> [Channel]
-generateRegions regionSize channel = [] -- Placeholder for the region generation implementation
+padChannel :: Int -> Channel -> Channel
+padChannel pad channel = Channel
+    { height = height channel + 2 * pad
+    , width = width channel + 2 * pad
+    , pixels = paddedPixels
+    }
+    where
+      paddedPixels = replicate pad emptyRow ++ paddedRows ++ replicate pad emptyRow
+      paddedRows = map (\row -> replicate pad 0 ++ row ++ replicate pad 0) (pixels channel)
+      emptyRow = replicate (width channel + 2 * pad) 0
+
+generateRegions :: Int -> Channel -> [[Channel]]
+generateRegions regionSize channel
+  | regionSize <= 0 = []
+  | even regionSize = []
+  | otherwise = generateRegionsHelper regionSize (pixels paddedChannel)
+  where
+    pad = regionSize `div` 2
+    paddedChannel = padChannel pad channel
+
+generateRegionsHelper :: Int -> [[Float]] -> [[Channel]]
+generateRegionsHelper _ [] = []
+generateRegionsHelper regionSize rows
+  | length rows < regionSize = []
+  | otherwise =
+      rowGroupChannels regionSize (take regionSize rows)
+        : generateRegionsHelper regionSize (tail rows)
+
+rowGroupChannels :: Int -> [[Float]] -> [Channel]
+rowGroupChannels regionSize rows
+  | length rows < regionSize = []
+  | any (\r -> length r < regionSize) rows = []
+  | otherwise =
+      Channel
+        { height = regionSize
+        , width = regionSize
+        , pixels = map (take regionSize) rows
+        }
+        : rowGroupChannels regionSize (map tail rows)
+
+
+
 
 forward :: Conv -> Channel -> [Channel]
 forward conv channel = [] -- Placeholder for the forward pass implementation
@@ -52,33 +108,40 @@ mkConv filterSize channelNumber numFilters g = (Conv
     , filterSize = filterSize
     , channelNumber = channelNumber
     , convolution = output
-    }, finalG)
-    where
-      limit = xavierLimit channelNumber numFilters filterSize
-      totalWeights = numFilters * channelNumber * filterSize * filterSize
-      randomWeights = take totalWeights (randomRs (-limit, limit) g)
-      (output, finalG) = buildFilters numFilters channelNumber filterSize randomWeights
+    }, genAfterWeights)
+  where
+    limit = xavierLimit channelNumber numFilters filterSize
+    totalWeights = numFilters * channelNumber * filterSize * filterSize
+    (randomWeights, genAfterWeights) = randomList totalWeights (-limit, limit) g
+    (output, _) = buildFilters numFilters channelNumber filterSize randomWeights
+
+randomList :: Int -> (Float, Float) -> StdGen -> ([Float], StdGen)
+randomList 0 _ gen = ([], gen)
+randomList n bounds gen =
+  let (value, gen') = randomR bounds gen
+      (rest, gen'') = randomList (n - 1) bounds gen'
+   in (value : rest, gen'')
 
 buildFilters :: Int -> Int -> Int -> [Float] -> ([[[[Float]]]], [Float])
 buildFilters 0 _ _ xs = ([], xs)
 buildFilters filtersLeft channels size xs = (currentFilter : restFilters, xsAfterRest)
-    where
-  (currentFilter, xsAfterCurrent) = buildChannels channels size xs
-  (restFilters, xsAfterRest) = buildFilters (filtersLeft - 1) channels size xsAfterCurrent
+  where
+    (currentFilter, xsAfterCurrent) = buildChannels channels size xs
+    (restFilters, xsAfterRest) = buildFilters (filtersLeft - 1) channels size xsAfterCurrent
 
 buildChannels :: Int -> Int -> [Float] -> ([[[Float]]], [Float])
 buildChannels 0 _ xs = ([], xs)
 buildChannels channelsLeft size xs = (currentChannel : restChannels, xsAfterRest)
-    where
-  (currentChannel, xsAfterCurrent) = buildRows size size xs
-  (restChannels, xsAfterRest) = buildChannels (channelsLeft - 1) size xsAfterCurrent
+  where
+    (currentChannel, xsAfterCurrent) = buildRows size size xs
+    (restChannels, xsAfterRest) = buildChannels (channelsLeft - 1) size xsAfterCurrent
 
 buildRows :: Int -> Int -> [Float] -> ([[Float]], [Float])
 buildRows 0 _ xs = ([], xs)
 buildRows rowsLeft rowWidth xs = (row : restRows, xsAfterRest)
-    where
-  (row, xsAfterRow) = splitAt rowWidth xs
-  (restRows, xsAfterRest) = buildRows (rowsLeft - 1) rowWidth xsAfterRow
+  where
+    (row, xsAfterRow) = splitAt rowWidth xs
+    (restRows, xsAfterRest) = buildRows (rowsLeft - 1) rowWidth xsAfterRow
 
 xavierLimit :: Int -> Int -> Int -> Float
 xavierLimit channels numFilters filterSize = sqrt (6 / fromIntegral (fanIn + fanOut))
