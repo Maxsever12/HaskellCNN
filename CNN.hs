@@ -32,8 +32,6 @@ main = do
     g <- getStdGen
     -- Create a convolutional layer with 3 filters
     let (convLayer, _) = mkConv filterSizeGlobal channelNumberGlobal numFiltersGlobal g
-    putStrLn $ "Convolution shape (filters, channels, height, width): " ++ show (numFilters convLayer, channelNumber convLayer, filterSize convLayer, filterSize convLayer)
-    print convLayer
     let channel =
           Channel
             { height = 4
@@ -44,12 +42,42 @@ main = do
                        , [13, 14, 15, 16]
                        ]
             }
-    putStrLn "Input Channel:"
-    print channel
-    let regions = generateRegions 7 channel
-    putStrLn "Generated Regions:"
-    print regions
+    print $ forward (convolution convLayer) [generateRegions 3 channel]
+  
     
+
+
+forward :: [[[[Float]]]] -> [[[Channel]]] -> [Channel]
+forward conv [] = []
+forward [] _ = []
+forward (channelFilter:channelFilters) (channel:channels) = convolveFilter channelFilter channel ++ forward channelFilters channels
+
+convolveFilter :: [[[Float]]] -> [[Channel]] -> [Channel]
+convolveFilter filter [] = []
+convolveFilter [] _ = []
+convolveFilter (filter:filters) channel = applyFilter filter channel : convolveFilter filters channel
+
+applyFilter :: [[Float]] -> [[Channel]] -> Channel
+applyFilter filter channels = Channel {
+  height = length channels 
+, width = if null channels then 0 else length (head channels)
+, pixels = applyFilterToRows filter channels
+}
+
+applyFilterToRows :: [[Float]] -> [[Channel]] -> [[Float]]
+applyFilterToRows _ [] = []
+applyFilterToRows filter (channels:channelss) = applyFilterToPixels filter channels : applyFilterToRows filter channelss
+
+applyFilterToPixels :: [[Float]] -> [Channel] -> [Float]
+applyFilterToPixels _ [] = []
+applyFilterToPixels filter (channel:channels) =
+  applyKernel filter (pixels channel) : applyFilterToPixels filter channels
+
+applyKernel :: [[Float]] -> [[Float]] -> Float
+applyKernel filter region = sum (zipWith multiplyRow filter region)
+  where
+    multiplyRow filterRow regionRow = sum (zipWith (*) filterRow regionRow)
+
 
 
 padChannel :: Int -> Channel -> Channel
@@ -94,10 +122,6 @@ rowGroupChannels regionSize rows
 
 
 
-
-forward :: Conv -> Channel -> [Channel]
-forward conv channel = [] -- Placeholder for the forward pass implementation
-
 -- Function to create a convolutional layer with a specified number of filters
 --Using Xavier Initialization for filter weights
 --https://365datascience.com/tutorials/machine-learning-tutorials/what-is-xavier-initialization/
@@ -113,7 +137,7 @@ mkConv filterSize channelNumber numFilters g = (Conv
     limit = xavierLimit channelNumber numFilters filterSize
     totalWeights = numFilters * channelNumber * filterSize * filterSize
     (randomWeights, genAfterWeights) = randomList totalWeights (-limit, limit) g
-    (output, _) = buildFilters numFilters channelNumber filterSize randomWeights
+    (output, _) = buildChannels channelNumber filterSize numFilters randomWeights
 
 randomList :: Int -> (Float, Float) -> StdGen -> ([Float], StdGen)
 randomList 0 _ gen = ([], gen)
@@ -122,19 +146,19 @@ randomList n bounds gen =
       (rest, gen'') = randomList (n - 1) bounds gen'
    in (value : rest, gen'')
 
-buildFilters :: Int -> Int -> Int -> [Float] -> ([[[[Float]]]], [Float])
-buildFilters 0 _ _ xs = ([], xs)
-buildFilters filtersLeft channels size xs = (currentFilter : restFilters, xsAfterRest)
+buildChannels :: Int -> Int -> Int -> [Float] -> ([[[[Float]]]], [Float])
+buildChannels 0 _ _ xs = ([], xs)
+buildChannels channelsLeft size numFilters xs = (currentChannel : restChannels, xsAfterRest)
   where
-    (currentFilter, xsAfterCurrent) = buildChannels channels size xs
-    (restFilters, xsAfterRest) = buildFilters (filtersLeft - 1) channels size xsAfterCurrent
+    (currentChannel, xsAfterCurrent) = buildFilters numFilters size xs
+    (restChannels, xsAfterRest) = buildChannels (channelsLeft - 1) size numFilters xsAfterCurrent
 
-buildChannels :: Int -> Int -> [Float] -> ([[[Float]]], [Float])
-buildChannels 0 _ xs = ([], xs)
-buildChannels channelsLeft size xs = (currentChannel : restChannels, xsAfterRest)
+buildFilters :: Int -> Int -> [Float] -> ([[[Float]]], [Float])
+buildFilters 0 _ xs = ([], xs)
+buildFilters filtersLeft size xs = (currentFilter : restFilters, xsAfterRest)
   where
-    (currentChannel, xsAfterCurrent) = buildRows size size xs
-    (restChannels, xsAfterRest) = buildChannels (channelsLeft - 1) size xsAfterCurrent
+    (currentFilter, xsAfterCurrent) = buildRows size size xs
+    (restFilters, xsAfterRest) = buildFilters (filtersLeft - 1) size xsAfterCurrent
 
 buildRows :: Int -> Int -> [Float] -> ([[Float]], [Float])
 buildRows 0 _ xs = ([], xs)
