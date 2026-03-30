@@ -17,13 +17,13 @@ data Channel = Channel
     deriving (Show)
 
 filterSizeGlobal :: Int
-filterSizeGlobal = 1
+filterSizeGlobal = 3
 
 channelNumberGlobal :: Int
-channelNumberGlobal = 8
+channelNumberGlobal = 1
 
 numFiltersGlobal :: Int
-numFiltersGlobal = 2
+numFiltersGlobal = 1
 
 
 main :: IO ()
@@ -42,6 +42,9 @@ main = do
                        , [13, 14, 15, 16]
                        ]
             }
+    print "Convolutional Layer Filters:"
+    print $ convolution convLayer
+    print "Convolution Applied:"
     print $ forward (convolution convLayer) [generateRegions 3 channel]
   
     
